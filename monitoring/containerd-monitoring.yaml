@@ -1,0 +1,85 @@
+kind: PodMonitor
+metadata:
+  labels:
+    k8s-app: containerd-monitor
+  name: containerd-monitor
+  namespace: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+    - monitoring
+  podMetricsEndpoints:
+  - interval: 10s
+    path: /v1/metrics
+    port: http-metrics
+  selector:
+    matchLabels:
+      k8s-app: containerd-monitor
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  annotations:
+  labels:
+    k8s-app: containerd-monitor
+  name: containerd-monitor
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels:
+      name: containerd-monitor
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        k8s-app: containerd-monitor
+        name: containerd-monitor
+    spec:
+      containers:
+      - image: nginx
+        imagePullPolicy: Always
+        name: nginx
+        ports:
+        - containerPort: 2345
+          hostPort: 2345
+          name: http-metrics
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /etc/nginx/conf.d
+          name: config-volume
+      hostNetwork: true
+      restartPolicy: Always
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
+        operator: Exists
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+        operator: Exists
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: containerd-monitor-conf
+        name: config-volume
+---
+apiVersion: v1
+data:
+  default.conf: |-
+    server {
+        listen       2345;
+        server_name  localhost;
+
+        location / {
+            proxy_pass http://127.0.0.1:1234;
+            proxy_set_header Host $http_host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_connect_timeout 30;
+            proxy_send_timeout 60;
+            proxy_read_timeout 60;
+        }
+    }
+kind: ConfigMap
+metadata:
+  name: containerd-monitor-conf
+  namespace: monitoring
